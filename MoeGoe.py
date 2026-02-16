@@ -387,5 +387,6 @@ if __name__ == "__main__":
         server_name="127.0.0.1",
         server_port=7860,
         share=True,
-        show_error=True
+        show_error=True,
+        allowed_paths='/kaggle/working/ema'
     )
