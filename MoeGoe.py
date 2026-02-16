@@ -320,10 +320,10 @@ with gr.Blocks(title="VITS TTS GUI", theme=gr.themes.Soft()) as demo:
     
     examples = gr.Examples(
         examples=[
-            ["你好，世界！", 1.0, 0.667, 0.8],
-            ["[LENGTH=1.5]这是一个语速较慢的示例", 1.5, 0.667, 0.8],
-            ["[NOISE=1.2]这是一个随机性较强的示例", 1.0, 1.2, 0.8],
-            ["[LENGTH=0.8][NOISE=0.9][NOISEW=1.1]这是一个组合参数的示例", 0.8, 0.9, 1.1],
+            ["[ZH]你好，世界！[ZH]", 1.0, 0.667, 0.8],
+            ["[LENGTH=1.5][ZH]这是一个语速较慢的示例[ZH]", 1.5, 0.667, 0.8],
+            ["[NOISE=1.2][ZH]这是一个随机性较强的示例[ZH]", 1.0, 1.2, 0.8],
+            ["[LENGTH=0.8][NOISE=0.9][NOISEW=1.1][ZH]这是一个组合参数的示例ZH]", 0.8, 0.9, 1.1],
         ],
         inputs=[text_input, length_scale, noise_scale, noise_scale_w],
         label="点击示例快速填充"
@@ -336,7 +336,8 @@ with gr.Blocks(title="VITS TTS GUI", theme=gr.themes.Soft()) as demo:
     - `[NOISEW=0.9]` - 设置噪声偏差（默认0.8）
     - `[CLEANED]` - 使用已清洗文本
     
-    **完整示例：** `[LENGTH=1.2][NOISE=0.5][NOISEW=0.9]你好，欢迎使用VITS！`
+    **完整示例：** `[LENGTH=1.2][NOISE=0.5][NOISEW=0.9][ZH]你好，欢迎使用VITS！[ZH]`
+    **使用需知：** `输入时一定要记得在需要合成的文字两边加上语言标识符，例如[ZH]XXXXXX[ZH]`
     """)
     
     # 事件绑定
