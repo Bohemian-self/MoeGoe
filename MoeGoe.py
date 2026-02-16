@@ -6,6 +6,7 @@ import utils
 import commons
 import sys
 import re
+import argparse
 from torch import no_grad, LongTensor
 import logging
 
@@ -79,13 +80,19 @@ def get_label(text, label):
 
 
 if __name__ == '__main__':
-    if '--escape' in sys.argv:
-        escape = True
-    else:
-        escape = False
-
-    model = input('Path of a VITS model: ')
-    config = input('Path of a config file: ')
+    parser = argparse.ArgumentParser(description='VITS TTS/VC Inference')
+    parser.add_argument('--model', '-m', type=str, required=True,
+                       help='Path of a VITS model')
+    parser.add_argument('--config', '-c', type=str, required=True,
+                       help='Path of a config file')
+    parser.add_argument('--escape', action='store_true',
+                       help='Escape output text')
+    
+    args = parser.parse_args()
+    
+    escape = args.escape
+    model = args.model
+    config = args.config
 
     hps_ms = utils.get_hparams_from_file(config)
     n_speakers = hps_ms.data.n_speakers if 'n_speakers' in hps_ms.data.keys() else 0
