@@ -21,11 +21,42 @@ hps_global = None
 speakers_global = []
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# 默认模型路径
+DEFAULT_MODEL_DIR = "/kaggle/input/datasets/nianzuzhao/moegoe-testmodels"
+DEFAULT_MODEL_PATH = os.path.join(DEFAULT_MODEL_DIR, "model.pth")  # 请根据实际文件名修改
+DEFAULT_CONFIG_PATH = os.path.join(DEFAULT_MODEL_DIR, "config.json")  # 请根据实际文件名修改
+
+def find_model_files(directory):
+    """在目录中查找模型和配置文件"""
+    model_file = None
+    config_file = None
+    
+    if os.path.exists(directory):
+        for file in os.listdir(directory):
+            if file.endswith('.pth'):
+                model_file = os.path.join(directory, file)
+            elif file.endswith('.json'):
+                config_file = os.path.join(directory, file)
+    
+    return model_file, config_file
+
 def load_model(model_path, config_path):
     """加载VITS模型和配置"""
     global model_global, hps_global, speakers_global
     
     try:
+        # 如果路径为空，尝试使用默认路径
+        if not model_path or not config_path:
+            default_model, default_config = find_model_files(DEFAULT_MODEL_DIR)
+            if default_model and default_config:
+                model_path = default_model
+                config_path = default_config
+                status_msg = f"使用默认模型：{os.path.basename(model_path)}\n"
+            else:
+                return None, "❌ 未指定模型文件且在默认路径未找到模型"
+        else:
+            status_msg = ""
+        
         # 加载配置
         hps = utils.get_hparams_from_file(config_path)
         
@@ -43,28 +74,32 @@ def load_model(model_path, config_path):
             **hps.model).to(device)
         
         net_g.eval()
-        utils.load_checkpoint(model_path, net_g, None)
+        
+        # 修复：load_checkpoint只需要两个参数
+        utils.load_checkpoint(model_path, net_g)
         
         # 保存到全局变量
         model_global = net_g
         hps_global = hps
         speakers_global = speakers
         
-        return f"✅ 模型加载成功！发现 {len(speakers)} 个说话人"
+        return speakers, f"{status_msg}✅ 模型加载成功！发现 {len(speakers)} 个说话人"
     
     except Exception as e:
-        return f"❌ 模型加载失败：{str(e)}"
+        import traceback
+        traceback.print_exc()
+        return None, f"❌ 模型加载失败：{str(e)}"
 
 def get_speaker_list():
     """获取说话人列表供下拉框使用"""
     if speakers_global:
-        return [(name, idx) for idx, name in enumerate(speakers_global)]
+        return [(f"{name} (ID:{idx})", idx) for idx, name in enumerate(speakers_global)]
     return [("无说话人", 0)]
 
 def process_text(text, length_scale, noise_scale, noise_scale_w):
     """处理文本中的控制标签"""
     if text is None or text == "":
-        return None, "请输入文本"
+        return None, length_scale, noise_scale, noise_scale_w, False
     
     # 提取控制标签
     length_scale, text = get_label_value(text, 'LENGTH', length_scale, 'length scale')
@@ -117,10 +152,8 @@ def synthesize(text, speaker_id, length_scale, noise_scale, noise_scale_w,
     
     # 检查是否已加载模型
     if model_global is None or hps_global is None:
-        if not model_path or not config_path:
-            return None, "请先选择模型和配置文件"
-        load_result = load_model(model_path, config_path)
-        if "❌" in load_result:
+        speakers, load_result = load_model(model_path, config_path)
+        if speakers is None:
             return None, load_result
     
     try:
@@ -129,7 +162,7 @@ def synthesize(text, speaker_id, length_scale, noise_scale, noise_scale_w,
             text, length_scale, noise_scale, noise_scale_w
         )
         
-        if processed_text is None:
+        if processed_text is None or processed_text.strip() == "":
             return None, "请输入文本"
         
         # 转换为模型输入
@@ -158,21 +191,46 @@ def synthesize(text, speaker_id, length_scale, noise_scale, noise_scale_w,
         
         write(output_path, hps_global.data.sampling_rate, audio)
         
-        return output_path, f"✅ 合成成功！音频已保存到：{output_path}\n使用参数：长度缩放={length_scale:.2f}, 噪声={noise_scale:.2f}, 噪声偏差={noise_scale_w:.2f}"
+        param_info = []
+        if length_scale != 1.0:
+            param_info.append(f"长度={length_scale:.2f}")
+        if noise_scale != 0.667:
+            param_info.append(f"噪声={noise_scale:.2f}")
+        if noise_scale_w != 0.8:
+            param_info.append(f"偏差={noise_scale_w:.2f}")
+        
+        param_str = f"（{', '.join(param_info)}）" if param_info else ""
+        
+        return output_path, f"✅ 合成成功！{param_str}\n音频已保存到：{output_path}"
     
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return None, f"❌ 合成失败：{str(e)}"
 
 def update_speaker_dropdown(model_path, config_path):
     """更新说话人下拉框"""
-    if model_path and config_path:
-        result = load_model(model_path, config_path)
-        if "✅" in result:
-            speakers = get_speaker_list()
-            return gr.Dropdown(choices=speakers, value=0), result
-        else:
-            return gr.Dropdown(choices=[("无说话人", 0)], value=0), result
-    return gr.Dropdown(choices=[("请先加载模型", 0)], value=0), "请选择模型和配置文件"
+    speakers, result = load_model(model_path, config_path)
+    if speakers:
+        speaker_list = [(f"{name} (ID:{idx})", idx) for idx, name in enumerate(speakers)]
+        return gr.Dropdown(choices=speaker_list, value=0), result
+    else:
+        return gr.Dropdown(choices=[("无说话人", 0)], value=0), result
+
+def auto_load_default():
+    """自动加载默认模型"""
+    if os.path.exists(DEFAULT_MODEL_DIR):
+        model_file, config_file = find_model_files(DEFAULT_MODEL_DIR)
+        if model_file and config_file:
+            speakers, result = load_model(model_file, config_file)
+            if speakers:
+                speaker_list = [(f"{name} (ID:{idx})", idx) for idx, name in enumerate(speakers)]
+                return (
+                    model_file, config_file,
+                    gr.Dropdown(choices=speaker_list, value=0),
+                    f"✅ 已自动加载默认模型：{os.path.basename(model_file)}"
+                )
+    return None, None, gr.Dropdown(choices=[("无说话人", 0)], value=0), "未找到默认模型"
 
 # 创建Gradio界面
 with gr.Blocks(title="VITS TTS GUI", theme=gr.themes.Soft()) as demo:
@@ -189,16 +247,21 @@ with gr.Blocks(title="VITS TTS GUI", theme=gr.themes.Soft()) as demo:
             model_path = gr.File(
                 label="选择VITS模型文件 (.pth)",
                 file_types=[".pth"],
-                type="filepath"
+                type="filepath",
+                value=DEFAULT_MODEL_PATH if os.path.exists(DEFAULT_MODEL_PATH) else None
             )
             config_path = gr.File(
                 label="选择配置文件 (.json)",
                 file_types=[".json"],
-                type="filepath"
+                type="filepath",
+                value=DEFAULT_CONFIG_PATH if os.path.exists(DEFAULT_CONFIG_PATH) else None
             )
             
-            load_btn = gr.Button("🔄 加载模型", variant="primary")
-            load_status = gr.Textbox(label="加载状态", interactive=False)
+            with gr.Row():
+                load_btn = gr.Button("🔄 加载模型", variant="primary")
+                use_default_btn = gr.Button("📂 使用默认模型", variant="secondary")
+            
+            load_status = gr.Textbox(label="加载状态", interactive=False, lines=3)
             
             gr.Markdown("### 🎛️ 合成参数")
             length_scale = gr.Slider(
@@ -223,7 +286,8 @@ with gr.Blocks(title="VITS TTS GUI", theme=gr.themes.Soft()) as demo:
             text_input = gr.Textbox(
                 label="输入要合成的文本",
                 placeholder="例如：[LENGTH=1.2][NOISE=0.5]你好，世界！",
-                lines=5
+                lines=5,
+                value="你好，欢迎使用VITS语音合成！"
             )
             
             gr.Markdown("### 🗣️ 说话人选择")
@@ -249,16 +313,21 @@ with gr.Blocks(title="VITS TTS GUI", theme=gr.themes.Soft()) as demo:
                     type="filepath"
                 )
             
-            output_status = gr.Textbox(label="合成状态", interactive=False)
+            output_status = gr.Textbox(label="合成状态", interactive=False, lines=3)
 
     # 示例区
     gr.Markdown("### 📋 使用示例")
     
-    with gr.Row():
-        example1 = gr.Button("示例1：基本合成")
-        example2 = gr.Button("示例2：调整语速")
-        example3 = gr.Button("示例3：增加随机性")
-        example4 = gr.Button("示例4：组合参数")
+    examples = gr.Examples(
+        examples=[
+            ["你好，世界！", 1.0, 0.667, 0.8],
+            ["[LENGTH=1.5]这是一个语速较慢的示例", 1.5, 0.667, 0.8],
+            ["[NOISE=1.2]这是一个随机性较强的示例", 1.0, 1.2, 0.8],
+            ["[LENGTH=0.8][NOISE=0.9][NOISEW=1.1]这是一个组合参数的示例", 0.8, 0.9, 1.1],
+        ],
+        inputs=[text_input, length_scale, noise_scale, noise_scale_w],
+        label="点击示例快速填充"
+    )
     
     gr.Markdown("""
     **输入格式说明：**
@@ -277,6 +346,12 @@ with gr.Blocks(title="VITS TTS GUI", theme=gr.themes.Soft()) as demo:
         outputs=[speaker_dropdown, load_status]
     )
     
+    use_default_btn.click(
+        fn=auto_load_default,
+        inputs=[],
+        outputs=[model_path, config_path, speaker_dropdown, load_status]
+    )
+    
     synthesize_btn.click(
         fn=synthesize,
         inputs=[
@@ -287,32 +362,30 @@ with gr.Blocks(title="VITS TTS GUI", theme=gr.themes.Soft()) as demo:
         outputs=[audio_output, output_status]
     )
     
-    # 示例点击事件
-    example1.click(
-        fn=lambda: ("你好，欢迎使用VITS语音合成！", 1.0, 0.667, 0.8),
-        outputs=[text_input, length_scale, noise_scale, noise_scale_w]
-    )
-    
-    example2.click(
-        fn=lambda: ("[LENGTH=1.5]这是一个语速较慢的示例", 1.5, 0.667, 0.8),
-        outputs=[text_input, length_scale, noise_scale, noise_scale_w]
-    )
-    
-    example3.click(
-        fn=lambda: ("[NOISE=1.2]这是一个随机性较强的示例", 1.0, 1.2, 0.8),
-        outputs=[text_input, length_scale, noise_scale, noise_scale_w]
-    )
-    
-    example4.click(
-        fn=lambda: ("[LENGTH=0.8][NOISE=0.9][NOISEW=1.1]这是一个组合参数的示例", 0.8, 0.9, 1.1),
-        outputs=[text_input, length_scale, noise_scale, noise_scale_w]
+    # 启动时自动加载默认模型
+    demo.load(
+        fn=auto_load_default,
+        inputs=[],
+        outputs=[model_path, config_path, speaker_dropdown, load_status]
     )
 
 # 启动界面
 if __name__ == "__main__":
+    # 检查默认模型路径
+    if os.path.exists(DEFAULT_MODEL_DIR):
+        print(f"默认模型目录：{DEFAULT_MODEL_DIR}")
+        model_file, config_file = find_model_files(DEFAULT_MODEL_DIR)
+        if model_file and config_file:
+            print(f"找到默认模型：{os.path.basename(model_file)}")
+            print(f"找到默认配置：{os.path.basename(config_file)}")
+        else:
+            print("默认目录中未找到模型文件")
+    else:
+        print(f"默认模型目录不存在：{DEFAULT_MODEL_DIR}")
+    
     demo.launch(
         server_name="127.0.0.1",
         server_port=7860,
-        share=True,
+        share=False,
         show_error=True
     )
