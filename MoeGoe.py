@@ -22,7 +22,7 @@ speakers_global = []
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # 默认模型路径
-DEFAULT_MODEL_DIR = "/kaggle/input/datasets/nianzuzhao/moegoe-testmodels"
+DEFAULT_MODEL_DIR = "/kaggle/working/ema"
 DEFAULT_MODEL_PATH = os.path.join(DEFAULT_MODEL_DIR, "model.pth")  # 请根据实际文件名修改
 DEFAULT_CONFIG_PATH = os.path.join(DEFAULT_MODEL_DIR, "config.json")  # 请根据实际文件名修改
 
